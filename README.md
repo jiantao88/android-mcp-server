@@ -155,7 +155,7 @@ npm run build
 
    或者直接使用已经克隆的项目：
    ```shell
-   cd /Users/zhangjiantao/Documents/GitHub/android-mcp-server
+   cd /path/to/android-mcp-server
    npm install
    npm run build
    ```
@@ -167,7 +167,7 @@ npm run build
        "adb": {
          "command": "node",
          "args": [
-           "/Users/zhangjiantao/Documents/GitHub/android-mcp-server/build/index.js",
+           "/path/to/android-mcp-server/build/index.js",
            "/usr/local/bin/adb"
          ]
        }
