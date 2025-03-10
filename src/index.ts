@@ -1,4 +1,6 @@
 import {exec} from 'child_process';
+import {promises as fs} from 'fs';
+import sharp from 'sharp';
 import {promisify} from 'util';
 import {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
 import {StdioServerTransport} from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -558,6 +560,66 @@ async function main() {
   await server.connect(transport);
   console.error("ADB MCP Server running on stdio");
 }
+
+// Tool to take and process screenshot
+server.tool(
+  'take-screenshot',
+  'Take a screenshot, compress it, and save it locally',
+  {
+    ...deviceSelectionParams,
+    outputPath: z.string().optional().default('screenshot.png').describe('Local path to save the screenshot'),
+    quality: z.number().optional().default(85).describe('Output image quality (1-100)'),
+    scale: z.number().optional().default(0.3).describe('Scale factor for image resize (0-1)')
+  },
+  async ({ deviceId, useUsb, useEmulator, outputPath, quality, scale }) => {
+    try {
+      const tempPath = '/sdcard/temp_screenshot.png';
+      
+      // Take screenshot on device
+      await executeAdbCommand(`shell screencap -p ${tempPath}`, { deviceId, useUsb, useEmulator });
+      
+      // Pull the file
+      await executeAdbCommand(`pull ${tempPath} ${outputPath}`, { deviceId, useUsb, useEmulator });
+      
+      // Remove temp file from device
+      await executeAdbCommand(`shell rm ${tempPath}`, { deviceId, useUsb, useEmulator });
+      
+      // Process the image
+      const image = sharp(outputPath);
+      const metadata = await image.metadata();
+      
+      if (!metadata.width || !metadata.height) {
+        throw new Error('Failed to get image dimensions');
+      }
+      
+      const newWidth = Math.round(metadata.width * scale);
+      const newHeight = Math.round(metadata.height * scale);
+      
+      await image
+        .resize(newWidth, newHeight)
+        .png({ quality })
+        .toFile('compressed_' + outputPath);
+      
+      // Remove the original file
+      await fs.unlink(outputPath);
+      
+      return {
+        content: [{
+          type: 'text',
+          text: `Screenshot taken and saved as compressed_${outputPath} (${newWidth}x${newHeight})`
+        }]
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [{
+          type: 'text',
+          text: `Failed to take screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`
+        }]
+      };
+    }
+  }
+);
 
 main().catch((error) => {
   console.error("Fatal error in main():", error);

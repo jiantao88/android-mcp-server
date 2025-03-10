@@ -141,6 +141,47 @@ npm run build
 
 请将 /path/to/adb 替换为你实际的 ADB 可执行文件路径。
 
+### 在 Windsurf 中使用
+
+1. 首先确保已经安装了 Node.js 和 ADB
+
+2. 克隆并构建项目：
+   ```shell
+   git clone https://github.com/jiantao88/android-mcp-server.git
+   cd android-mcp-server
+   npm install
+   npm run build
+   ```
+
+   或者直接使用已经克隆的项目：
+   ```shell
+   cd /Users/zhangjiantao/Documents/GitHub/android-mcp-server
+   npm install
+   npm run build
+   ```
+
+3. 在 Windsurf 的设置中添加 MCP 配置：
+   ```json
+   {
+     "mcpServers": {
+       "adb": {
+         "command": "node",
+         "args": [
+           "/Users/zhangjiantao/Documents/GitHub/android-mcp-server/build/index.js",
+           "/usr/local/bin/adb"
+         ]
+       }
+     }
+   }
+   ```
+
+   注意：
+   - 将路径中的路径替换为你的实际路径
+   - `/usr/local/bin/adb` 是 ADB 的默认安装路径，如果你的 ADB 安装在其他位置，请相应修改
+   - 确保所有路径都使用绝对路径
+
+4. 重启 Windsurf 使配置生效
+
 ## 许可证
 
 本项目采用 MIT 许可证 - 详见 [LICENSE](./LICENSE) 文件。
