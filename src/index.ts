@@ -31,14 +31,19 @@ async function executeAdbCommand(command: string, options?: { deviceId?: string,
       deviceOption = '-e';
     }
 
-    const {stdout, stderr} = await execAsync(`${adbPath} ${deviceOption} ${command}`);
-    if (stderr) {
+    // 使用完整路径执行命令
+    const cmd = `"${adbPath}" ${deviceOption} ${command}`;
+    console.log('Executing command:', cmd);
+    const {stdout, stderr} = await execAsync(cmd);
+    
+    // 某些 adb 命令会输出到 stderr，但不一定是错误
+    if (stderr && !stdout) {
       throw new Error(stderr);
     }
-    return stdout;
+    return stdout || stderr;
   } catch (error: unknown) {
     if (error instanceof Error) {
-      throw new Error(`ADB Command Error: ${error.message}, ${error.name} ${error.stack}`);
+      throw new Error(`ADB Command Error: ${error.message}`);
     }
     throw new Error('Unknown error occurred while executing ADB command');
   }
@@ -569,23 +574,37 @@ server.tool(
     ...deviceSelectionParams,
     outputPath: z.string().optional().default('screenshot.png').describe('Local path to save the screenshot'),
     quality: z.number().optional().default(85).describe('Output image quality (1-100)'),
-    scale: z.number().optional().default(0.3).describe('Scale factor for image resize (0-1)')
+    scale: z.number().optional().default(0.3).describe('Scale factor for image resize (0-1)'),
+    keepOriginal: z.boolean().optional().default(false).describe('Keep the original uncompressed screenshot')
   },
-  async ({ deviceId, useUsb, useEmulator, outputPath, quality, scale }) => {
+  async ({ deviceId, useUsb, useEmulator, outputPath, quality, scale, keepOriginal }) => {
     try {
-      const tempPath = '/sdcard/temp_screenshot.png';
+      // 使用环境变量中的目录或当前目录
+      const baseDir = process.env.SCREENSHOT_DIR || '.';
+      await fs.mkdir(baseDir, { recursive: true });
       
-      // Take screenshot on device
+      // 使用时间戳确保临时文件名唯一
+      const timestamp = Date.now();
+      const tempPath = `/sdcard/temp_screenshot_${timestamp}.png`;
+      const fullOutputPath = `${baseDir}/${outputPath}`;
+      
+      // 在设备上截图
       await executeAdbCommand(`shell screencap -p ${tempPath}`, { deviceId, useUsb, useEmulator });
       
-      // Pull the file
-      await executeAdbCommand(`pull ${tempPath} ${outputPath}`, { deviceId, useUsb, useEmulator });
+      try {
+        // 拉取文件
+        await executeAdbCommand(`pull ${tempPath} ${fullOutputPath}`, { deviceId, useUsb, useEmulator });
+      } finally {
+        // 确保总是清理设备上的临时文件
+        try {
+          await executeAdbCommand(`shell rm -f ${tempPath}`, { deviceId, useUsb, useEmulator });
+        } catch (e) {
+          console.error('Failed to clean up temp file on device:', e);
+        }
+      }
       
-      // Remove temp file from device
-      await executeAdbCommand(`shell rm ${tempPath}`, { deviceId, useUsb, useEmulator });
-      
-      // Process the image
-      const image = sharp(outputPath);
+      // 处理图片
+      const image = sharp(fullOutputPath);
       const metadata = await image.metadata();
       
       if (!metadata.width || !metadata.height) {
@@ -595,26 +614,48 @@ server.tool(
       const newWidth = Math.round(metadata.width * scale);
       const newHeight = Math.round(metadata.height * scale);
       
+      // 生成压缩后的文件名
+      const ext = outputPath.toLowerCase().endsWith('.png') ? '' : '.png';
+      const compressedPath = `${baseDir}/compressed_${outputPath}${ext}`;
+      
+      // 压缩和调整图片大小
       await image
         .resize(newWidth, newHeight)
         .png({ quality })
-        .toFile('compressed_' + outputPath);
+        .toFile(compressedPath);
       
-      // Remove the original file
-      await fs.unlink(outputPath);
+      // 如果不保留原图，则删除
+      if (!keepOriginal) {
+        try {
+          await fs.unlink(fullOutputPath);
+        } catch (e) {
+          console.error('Failed to remove original file:', e);
+        }
+      }
+      
+      // 读取图片数据用于显示
+      const imageBuffer = await fs.readFile(compressedPath);
+      const base64Image = imageBuffer.toString('base64');
       
       return {
-        content: [{
-          type: 'text',
-          text: `Screenshot taken and saved as compressed_${outputPath} (${newWidth}x${newHeight})`
-        }]
+        content: [
+          {
+            type: 'text',
+            text: `截图已保存为 ${compressedPath} (${newWidth}x${newHeight})${keepOriginal ? '\n原始截图保留在 ' + fullOutputPath : ''}`
+          },
+          {
+            type: 'image',
+            data: base64Image,
+            mimeType: 'image/png'
+          }
+        ]
       };
     } catch (error) {
       return {
         isError: true,
         content: [{
           type: 'text',
-          text: `Failed to take screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`
+          text: `截图失败: ${error instanceof Error ? error.message : '未知错误'}`
         }]
       };
     }
