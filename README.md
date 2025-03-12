@@ -2,6 +2,10 @@
 
 这是一个用于 Android Debug Bridge (ADB) 的 MCP 服务器，使 Claude 能够与 Android 设备进行交互。
 
+## 技术文章
+
+- [从 0 到 1 开发一个 Android MCP 服务：理解 MCP 协议与 ADB 集成](https://juejin.cn/post/7480747396454563874)
+
 ## 工具列表
 
 1. `get-devices`
@@ -146,6 +150,7 @@ npm run build
 1. 首先确保已经安装了 Node.js 和 ADB
 
 2. 克隆并构建项目：
+
    ```shell
    git clone https://github.com/jiantao88/android-mcp-server.git
    cd android-mcp-server
@@ -154,6 +159,7 @@ npm run build
    ```
 
    或者直接使用已经克隆的项目：
+
    ```shell
    cd /path/to/android-mcp-server
    npm install
@@ -161,6 +167,7 @@ npm run build
    ```
 
 3. 在 Windsurf 的设置中添加 MCP 配置：
+
    ```json
    {
      "mcpServers": {
@@ -176,6 +183,7 @@ npm run build
    ```
 
    注意：
+
    - 将路径中的路径替换为你的实际路径
    - `/usr/local/bin/adb` 是 ADB 的默认安装路径，如果你的 ADB 安装在其他位置，请相应修改
    - 确保所有路径都使用绝对路径
