@@ -1,6 +1,4 @@
 import {exec} from 'child_process';
-import {promises as fs} from 'fs';
-import sharp from 'sharp';
 import {promisify} from 'util';
 import {McpServer} from "@modelcontextprotocol/sdk/server/mcp.js";
 import {StdioServerTransport} from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -8,18 +6,18 @@ import {z} from 'zod';
 
 const execAsync = promisify(exec);
 const server = new McpServer({
-  name: 'adb-tools',
+  name: 'adb-mcp-tools',
   version: '1.0.0'
 });
 
-// Command line argument parsing
+// 命令行参数解析
 if (process.argv.length < 3) {
   console.error('Usage: mcp-server-adb <path for adb>');
   process.exit(1);
 }
 const adbPath = process.argv[2];
 
-// Function to execute ADB commands
+// 执行ADB命令的函数
 async function executeAdbCommand(command: string, options?: { deviceId?: string, useUsb?: boolean, useEmulator?: boolean }): Promise<string> {
   try {
     let deviceOption = '';
@@ -49,7 +47,7 @@ async function executeAdbCommand(command: string, options?: { deviceId?: string,
   }
 }
 
-// Tool to get list of connected devices
+// 获取已连接设备列表的工具
 server.tool(
   'get-devices',
   'Get a list of connected Android devices',
@@ -72,14 +70,14 @@ server.tool(
   }
 );
 
-// Update the device selection parameters for all tools
+// 更新所有工具的设备选择参数
 const deviceSelectionParams = {
   deviceId: z.string().optional().describe('Target specific device by ID (takes precedence over useUsb and useEmulator)'),
   useUsb: z.boolean().optional().default(false).describe('Target USB connected device (-d)'),
   useEmulator: z.boolean().optional().default(false).describe('Target emulator instance (-e)')
 };
 
-// Tool to get list of installed packages
+// 获取已安装应用列表的工具
 server.tool(
   'list-packages',
   'Get a list of installed applications',
@@ -118,7 +116,7 @@ server.tool(
   }
 );
 
-// Tool for text input
+// 文本输入工具
 server.tool(
   'input-text',
   'Input text to the connected Android device',
@@ -142,7 +140,7 @@ server.tool(
   }
 );
 
-// Tool to show ADB help
+// 显示ADB帮助信息的工具
 server.tool(
   'help',
   'Show ADB help information',
@@ -161,7 +159,7 @@ server.tool(
   }
 );
 
-// Tool to kill ADB server
+// 终止ADB服务器的工具
 server.tool(
   'kill-server',
   'Kill the ADB server process',
@@ -169,7 +167,7 @@ server.tool(
     try {
       await executeAdbCommand('kill-server');
       return {
-        content: [{type: 'text', text: 'ADB server has been killed successfully'}]
+        content: [{type: 'text', text: 'ADB server terminated successfully'}]
       };
     } catch (error) {
       return {
@@ -180,7 +178,7 @@ server.tool(
   }
 );
 
-// Tool to start ADB server
+// 启动ADB服务器的工具
 server.tool(
   'start-server',
   'Start the ADB server process',
@@ -199,441 +197,11 @@ server.tool(
   }
 );
 
-// Tool to install APK
-server.tool(
-  'install-apk',
-  'Install an APK file to the device',
-  {
-    ...deviceSelectionParams,
-    apkPath: z.string().describe('Path to the APK file'),
-    allowReinstall: z.boolean().optional().default(true).describe('Allow reinstalling an existing app (-r)'),
-    allowTestPackages: z.boolean().optional().default(true).describe('Allow test packages (-t)'),
-    allowDowngrade: z.boolean().optional().default(true).describe('Allow version code downgrade (-d)'),
-    grantPermissions: z.boolean().optional().default(false).describe('Grant all permissions (-g)')
-  },
-  async ({ apkPath, deviceId, useUsb, useEmulator, allowReinstall, allowTestPackages, allowDowngrade, grantPermissions }) => {
-    try {
-      const options = [
-        allowReinstall ? '-r' : '',
-        allowTestPackages ? '-t' : '',
-        allowDowngrade ? '-d' : '',
-        grantPermissions ? '-g' : '',
-      ].filter(Boolean).join(' ');
-
-      const result = await executeAdbCommand(`install ${options} "${apkPath}"`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to install APK: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to uninstall package
-server.tool(
-  'uninstall-apk',
-  'Uninstall an application from the device',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('Package name of the application'),
-    keepData: z.boolean().optional().default(false).describe('Keep the app data and cache directories (-k)')
-  },
-  async ({ packageName, keepData, deviceId, useUsb, useEmulator }) => {
-    try {
-      const options = keepData ? '-k' : '';
-      const result = await executeAdbCommand(`uninstall ${options} ${packageName}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'Package uninstalled successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to uninstall package: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to clear app data
-server.tool(
-  'clear-app-data',
-  'Clear application data for a specific package',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('Package name of the application')
-  },
-  async ({ packageName, deviceId, useUsb, useEmulator }) => {
-    try {
-      const result = await executeAdbCommand(`shell pm clear ${packageName}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'Application data cleared successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to clear application data: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to pull file from device
-server.tool(
-  'pull',
-  'Pull a file from the Android device to the local machine',
-  {
-    ...deviceSelectionParams,
-    remotePath: z.string().describe('Path to the file on the device'),
-    localPath: z.string().optional().describe('Path where to save the file locally (optional, defaults to current directory)')
-  },
-  async ({ remotePath, localPath, deviceId, useUsb, useEmulator }) => {
-    try {
-      const pullCommand = localPath
-        ? `pull "${remotePath}" "${localPath}"`
-        : `pull "${remotePath}"`;
-
-      const result = await executeAdbCommand(pullCommand, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to pull file: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to push file to device
-server.tool(
-  'push',
-  'Push a file from the local machine to the Android device',
-  {
-    ...deviceSelectionParams,
-    localPath: z.string().describe('Path to the local file'),
-    remotePath: z.string().describe('Destination path on the device')
-  },
-  async ({ localPath, remotePath, deviceId, useUsb, useEmulator }) => {
-    try {
-      const result = await executeAdbCommand(`push "${localPath}" "${remotePath}"`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to push file: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to capture screen
-server.tool(
-  'screencap',
-  'Take a screenshot of the device display',
-  {
-    ...deviceSelectionParams,
-    remotePath: z.string().describe('Path on device where to save the screenshot (e.g., /sdcard/screenshot.png)'),
-    usePng: z.boolean().optional().default(true).describe('Save as PNG format (-p)')
-  },
-  async ({ remotePath, usePng, deviceId, useUsb, useEmulator }) => {
-    try {
-      const options = usePng ? '-p' : '';
-      const result = await executeAdbCommand(`shell screencap ${options} ${remotePath}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'Screenshot captured successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to capture screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to remove file from device
-server.tool(
-  'rm',
-  'Remove a file from the Android device',
-  {
-    ...deviceSelectionParams,
-    path: z.string().describe('Path to the file on device to remove'),
-    force: z.boolean().optional().default(false).describe('Force removal (-f)'),
-    recursive: z.boolean().optional().default(false).describe('Recursive removal (-r)')
-  },
-  async ({ path, force, recursive, deviceId, useUsb, useEmulator }) => {
-    try {
-      const options = [
-        force ? '-f' : '',
-        recursive ? '-r' : ''
-      ].filter(Boolean).join(' ');
-
-      const result = await executeAdbCommand(`shell rm ${options} ${path}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'File removed successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to remove file: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to reset app permissions
-server.tool(
-  'reset-permissions',
-  'Reset all permissions for a specific package',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('Package name of the application')
-  },
-  async ({ packageName, deviceId, useUsb, useEmulator }) => {
-    try {
-      const result = await executeAdbCommand(`shell pm reset-permissions -p ${packageName}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'Permissions reset successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to reset permissions: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to grant a permission
-server.tool(
-  'grant-permission',
-  'Grant a specific permission to an app',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('Package name of the application'),
-    permission: z.string().describe('Permission to grant (e.g., android.permission.CAMERA)')
-  },
-  async ({ packageName, permission, deviceId, useUsb, useEmulator }) => {
-    try {
-      const result = await executeAdbCommand(`shell pm grant ${packageName} ${permission}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || `Permission ${permission} granted successfully to ${packageName}`}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to grant permission: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to revoke a permission
-server.tool(
-  'revoke-permission',
-  'Revoke a specific permission from an app',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('Package name of the application'),
-    permission: z.string().describe('Permission to revoke (e.g., android.permission.CAMERA)')
-  },
-  async ({ packageName, permission, deviceId, useUsb, useEmulator }) => {
-    try {
-      const result = await executeAdbCommand(`shell pm revoke ${packageName} ${permission}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || `Permission ${permission} revoked successfully from ${packageName}`}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to revoke permission: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
-// Tool to start an activity
-server.tool(
-  'start-activity',
-  'Start an activity using activity manager (am start)',
-  {
-    ...deviceSelectionParams,
-    component: z.string().optional().describe('Component name (e.g., com.example/.MainActivity or com.example/com.example.MainActivity)'),
-    action: z.string().optional().describe('Intent action (e.g., android.intent.action.VIEW)'),
-    data: z.string().optional().describe('Intent data URI'),
-    mimeType: z.string().optional().describe('MIME type (e.g., image/png)'),
-    category: z.array(z.string()).optional().describe('Intent categories (e.g., ["android.intent.category.LAUNCHER"])'),
-    extras: z.array(z.object({
-      type: z.enum(['string', 'int', 'long', 'float', 'boolean', 'uri', 'component']),
-      key: z.string(),
-      value: z.string()
-    })).optional().describe('Intent extras (e.g., [{type: "string", key: "key1", value: "value1"}])'),
-    flags: z.array(z.string()).optional().describe('Intent flags (e.g., ["activity_new_task", "activity_clear_top"])'),
-    waitForLaunch: z.boolean().optional().default(false).describe('Wait for launch to complete (-W)'),
-    debuggable: z.boolean().optional().default(false).describe('Debug mode (-D)'),
-    stopApp: z.boolean().optional().default(false).describe('Force stop target app before starting activity (-S)')
-  },
-  async ({
-    component,
-    action,
-    data,
-    mimeType,
-    category,
-    extras,
-    flags,
-    waitForLaunch,
-    debuggable,
-    stopApp,
-    deviceId,
-    useUsb,
-    useEmulator
-  }) => {
-    try {
-      if (!component && !action) {
-        throw new Error('Either component or action must be specified');
-      }
-
-      const parts = ['am start'];
-
-      // Add basic options
-      if (waitForLaunch) parts.push('-W');
-      if (debuggable) parts.push('-D');
-      if (stopApp) parts.push('-S');
-
-      // Add action
-      if (action) parts.push('-a', action);
-
-      // Add data
-      if (data) parts.push('-d', `"${data}"`);
-
-      // Add MIME type
-      if (mimeType) parts.push('-t', mimeType);
-
-      // Add categories
-      if (category) {
-        category.forEach(cat => parts.push('-c', cat));
-      }
-
-      // Add flags
-      if (flags) {
-        flags.forEach(flag => parts.push('-f', flag));
-      }
-
-      // Add extras
-      if (extras) {
-        extras.forEach(extra => {
-          const typeFlag = {
-            'string': '--es',
-            'int': '--ei',
-            'long': '--el',
-            'float': '--ef',
-            'boolean': '--ez',
-            'uri': '--eu',
-            'component': '--ecn'
-          }[extra.type];
-          parts.push(typeFlag, extra.key, `"${extra.value}"`);
-        });
-      }
-
-      // Add component name (if specified)
-      if (component) {
-        parts.push(component);
-      }
-
-      const result = await executeAdbCommand(`shell ${parts.join(' ')}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{type: 'text', text: result || 'Activity started successfully'}]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{type: 'text', text: `Failed to start activity: ${error instanceof Error ? error.message : 'Unknown error'}`}]
-      };
-    }
-  }
-);
-
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("ADB MCP Server running on stdio");
 }
-
-// 函数：获取应用崩溃日志
-async function getAppCrashLog(packageName: string, options?: { deviceId?: string, useUsb?: boolean, useEmulator?: boolean, lines?: number }): Promise<string> {
-  try {
-    const lines = options?.lines || 200;
-    // 使用logcat获取指定包名的崩溃日志
-    const logcatCommand = `logcat -b crash -d -v threadtime *:E | grep -i "${packageName}" | tail -n ${lines}`;
-    const result = await executeAdbCommand(`shell ${logcatCommand}`, { deviceId: options?.deviceId, useUsb: options?.useUsb, useEmulator: options?.useEmulator });
-    return result || '未找到相关崩溃日志';
-  } catch (error) {
-    return `获取崩溃日志失败: ${error instanceof Error ? error.message : '未知错误'}`;
-  }
-}
-
-// 工具：获取应用崩溃日志
-server.tool(
-  'get-crash-log',
-  '获取应用崩溃日志，分析错误原因',
-  {
-    ...deviceSelectionParams,
-    packageName: z.string().describe('应用包名'),
-    lines: z.number().optional().default(200).describe('获取日志的行数')
-  },
-  async ({ packageName, lines, deviceId, useUsb, useEmulator }) => {
-    try {
-      // 获取崩溃日志
-      const crashLog = await getAppCrashLog(packageName, { deviceId, useUsb, useEmulator, lines });
-      
-      if (!crashLog || crashLog === '未找到相关崩溃日志') {
-        return {
-          content: [{ type: 'text', text: '未找到相关崩溃日志，请确认应用是否发生过崩溃或包名是否正确' }]
-        };
-      }
-
-      return {
-        content: [{ type: 'text', text: `应用 ${packageName} 的崩溃日志：\n\n${crashLog}\n\n请在Windsurf中分析该崩溃日志的原因。` }]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: `获取崩溃日志失败: ${error instanceof Error ? error.message : '未知错误'}` }]
-      };
-    }
-  }
-);
-
-// 工具：清除日志缓冲区
-server.tool(
-  'clear-logcat',
-  '清除设备上的日志缓冲区',
-  {
-    ...deviceSelectionParams,
-    buffer: z.string().optional().default('all').describe('要清除的缓冲区 (main, events, radio, crash, all)')
-  },
-  async ({ buffer, deviceId, useUsb, useEmulator }) => {
-    try {
-      const bufferOption = buffer === 'all' ? '' : `-b ${buffer}`;
-      const result = await executeAdbCommand(`shell logcat -c ${bufferOption}`, { deviceId, useUsb, useEmulator });
-      return {
-        content: [{ type: 'text', text: result || `成功清除${buffer}日志缓冲区` }]
-      };
-    } catch (error) {
-      return {
-        isError: true,
-        content: [{ type: 'text', text: `清除日志缓冲区失败: ${error instanceof Error ? error.message : '未知错误'}` }]
-      };
-    }
-  }
-);
 
 main().catch((error) => {
   console.error("Fatal error in main():", error);
