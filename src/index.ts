@@ -566,97 +566,70 @@ async function main() {
   console.error("ADB MCP Server running on stdio");
 }
 
-// Tool to take and process screenshot
+// 函数：获取应用崩溃日志
+async function getAppCrashLog(packageName: string, options?: { deviceId?: string, useUsb?: boolean, useEmulator?: boolean, lines?: number }): Promise<string> {
+  try {
+    const lines = options?.lines || 200;
+    // 使用logcat获取指定包名的崩溃日志
+    const logcatCommand = `logcat -b crash -d -v threadtime *:E | grep -i "${packageName}" | tail -n ${lines}`;
+    const result = await executeAdbCommand(`shell ${logcatCommand}`, { deviceId: options?.deviceId, useUsb: options?.useUsb, useEmulator: options?.useEmulator });
+    return result || '未找到相关崩溃日志';
+  } catch (error) {
+    return `获取崩溃日志失败: ${error instanceof Error ? error.message : '未知错误'}`;
+  }
+}
+
+// 工具：获取应用崩溃日志
 server.tool(
-  'take-screenshot',
-  'Take a screenshot, compress it, and save it locally',
+  'get-crash-log',
+  '获取应用崩溃日志，分析错误原因',
   {
     ...deviceSelectionParams,
-    outputPath: z.string().optional().default('screenshot.png').describe('Local path to save the screenshot'),
-    quality: z.number().optional().default(85).describe('Output image quality (1-100)'),
-    scale: z.number().optional().default(0.3).describe('Scale factor for image resize (0-1)'),
-    keepOriginal: z.boolean().optional().default(false).describe('Keep the original uncompressed screenshot')
+    packageName: z.string().describe('应用包名'),
+    lines: z.number().optional().default(200).describe('获取日志的行数')
   },
-  async ({ deviceId, useUsb, useEmulator, outputPath, quality, scale, keepOriginal }) => {
+  async ({ packageName, lines, deviceId, useUsb, useEmulator }) => {
     try {
-      // 使用环境变量中的目录或当前目录
-      const baseDir = process.env.SCREENSHOT_DIR || '.';
-      await fs.mkdir(baseDir, { recursive: true });
+      // 获取崩溃日志
+      const crashLog = await getAppCrashLog(packageName, { deviceId, useUsb, useEmulator, lines });
       
-      // 使用时间戳确保临时文件名唯一
-      const timestamp = Date.now();
-      const tempPath = `/sdcard/temp_screenshot_${timestamp}.png`;
-      const fullOutputPath = `${baseDir}/${outputPath}`;
-      
-      // 在设备上截图
-      await executeAdbCommand(`shell screencap -p ${tempPath}`, { deviceId, useUsb, useEmulator });
-      
-      try {
-        // 拉取文件
-        await executeAdbCommand(`pull ${tempPath} ${fullOutputPath}`, { deviceId, useUsb, useEmulator });
-      } finally {
-        // 确保总是清理设备上的临时文件
-        try {
-          await executeAdbCommand(`shell rm -f ${tempPath}`, { deviceId, useUsb, useEmulator });
-        } catch (e) {
-          console.error('Failed to clean up temp file on device:', e);
-        }
+      if (!crashLog || crashLog === '未找到相关崩溃日志') {
+        return {
+          content: [{ type: 'text', text: '未找到相关崩溃日志，请确认应用是否发生过崩溃或包名是否正确' }]
+        };
       }
-      
-      // 处理图片
-      const image = sharp(fullOutputPath);
-      const metadata = await image.metadata();
-      
-      if (!metadata.width || !metadata.height) {
-        throw new Error('Failed to get image dimensions');
-      }
-      
-      const newWidth = Math.round(metadata.width * scale);
-      const newHeight = Math.round(metadata.height * scale);
-      
-      // 生成压缩后的文件名
-      const ext = outputPath.toLowerCase().endsWith('.png') ? '' : '.png';
-      const compressedPath = `${baseDir}/compressed_${outputPath}${ext}`;
-      
-      // 压缩和调整图片大小
-      await image
-        .resize(newWidth, newHeight)
-        .png({ quality })
-        .toFile(compressedPath);
-      
-      // 如果不保留原图，则删除
-      if (!keepOriginal) {
-        try {
-          await fs.unlink(fullOutputPath);
-        } catch (e) {
-          console.error('Failed to remove original file:', e);
-        }
-      }
-      
-      // 读取图片数据用于显示
-      const imageBuffer = await fs.readFile(compressedPath);
-      const base64Image = imageBuffer.toString('base64');
-      
+
       return {
-        content: [
-          {
-            type: 'text',
-            text: `截图已保存为 ${compressedPath} (${newWidth}x${newHeight})${keepOriginal ? '\n原始截图保留在 ' + fullOutputPath : ''}`
-          },
-          {
-            type: 'image',
-            data: base64Image,
-            mimeType: 'image/png'
-          }
-        ]
+        content: [{ type: 'text', text: `应用 ${packageName} 的崩溃日志：\n\n${crashLog}\n\n请在Windsurf中分析该崩溃日志的原因。` }]
       };
     } catch (error) {
       return {
         isError: true,
-        content: [{
-          type: 'text',
-          text: `截图失败: ${error instanceof Error ? error.message : '未知错误'}`
-        }]
+        content: [{ type: 'text', text: `获取崩溃日志失败: ${error instanceof Error ? error.message : '未知错误'}` }]
+      };
+    }
+  }
+);
+
+// 工具：清除日志缓冲区
+server.tool(
+  'clear-logcat',
+  '清除设备上的日志缓冲区',
+  {
+    ...deviceSelectionParams,
+    buffer: z.string().optional().default('all').describe('要清除的缓冲区 (main, events, radio, crash, all)')
+  },
+  async ({ buffer, deviceId, useUsb, useEmulator }) => {
+    try {
+      const bufferOption = buffer === 'all' ? '' : `-b ${buffer}`;
+      const result = await executeAdbCommand(`shell logcat -c ${bufferOption}`, { deviceId, useUsb, useEmulator });
+      return {
+        content: [{ type: 'text', text: result || `成功清除${buffer}日志缓冲区` }]
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `清除日志缓冲区失败: ${error instanceof Error ? error.message : '未知错误'}` }]
       };
     }
   }
